@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>WhatsApp Bot UI</title>
+		<link rel="stylesheet" href="style.css" />
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+	</head>
+	<body>
+		<div class="app">
+			<header class="topbar">
+				<div class="brand">
+					<div class="logo">WA</div>
+					<div>
+						<div class="title">WhatsApp Bot</div>
+						<div class="subtitle">Control WhatsApp from your server</div>
+					</div>
+				</div>
+				<div class="status-wrap">
+					<div id="status" class="status">Loading...</div>
+					<button id="logoutBtn" class="btn btn-logout">Logout</button>
+				</div>
+			</header>
+
+			<main class="grid">
+				<section class="card connect-card">
+					<div class="connect-left">
+						<div id="connectedNumber" class="connected-number muted"></div>
+						<div class="muted small">Scan the QR below with WhatsApp → Linked Devices → Link a Device</div>
+					</div>
+					<div class="connect-right">
+						<div id="qrArea" class="qr-area">
+							<div id="qrcode"></div>
+						</div>
+					</div>
+				</section>
+
+				<section class="card send-card">
+					<h3>Send Message</h3>
+					<form id="sendForm" class="send-form">
+						<input id="number" placeholder="5511999999999" />
+						<textarea id="message" placeholder="Type your message"></textarea>
+						<label for="fileInput" class="small muted">Attach file (optional)</label>
+						<input id="fileInput" type="file" accept="image/*,video/*,.pdf,.doc,.docx,.ppt,.pptx" />
+						<div id="filePreview" class="file-preview"></div>
+						<label for="mediaType" class="small muted">Media type (optional)</label>
+						<select id="mediaType">
+							<option value="auto">Auto-detect</option>
+							<option value="image">Image</option>
+							<option value="video">Video</option>
+							<option value="document">Document</option>
+						</select>
+						<div class="form-actions">
+							<button type="submit" class="btn primary">Send</button>
+							<button type="button" id="clearBtn" class="btn ghost">Clear</button>
+						</div>
+					</form>
+					<div id="sendResult"></div>
+				</section>
+
+				<!-- <section class="card check-card">
+					<h3>Check Number</h3>
+					<div class="check-form">
+						<input id="checkNumber" placeholder="5511999999999" />
+						<button id="checkNumberBtn" class="btn">Check</button>
+						<div id="checkResult" class="muted small" style="margin-top: 8px"></div>
+					</div>
+				</section> -->
+
+				<section class="card log-card">
+					<h3>Chat Log</h3>
+					<div id="chatLog"></div>
+				</section>
+			</main>
+		</div>
+
+		<script src="app.js"></script>
+	</body>
+</html>
