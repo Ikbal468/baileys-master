@@ -1,4 +1,6 @@
-import makeWASocket, { DisconnectReason, useMultiFileAuthState } from './lib/index.js'
+import 'reflect-metadata'
+import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } from './lib/index.js'
+import { AppDataSource } from './data-source.js'
 import express from 'express'
 import qrcode from 'qrcode-terminal'
 import pino from 'pino'
@@ -16,6 +18,7 @@ app.use(express.static(path.join(process.cwd(), 'frontend')))
 const upload = multer({ dest: os.tmpdir() })
 
 let sock = null
+let groupRepo = null
 let qrGenerated = false
 let lastQR = null
 let connectedNumber = null
@@ -37,10 +40,53 @@ function clearAuthFolder() {
 	}
 }
 
+async function syncWhatsAppGroups() {
+	if (!sock || typeof sock.groupFetchAllParticipating !== 'function') {
+		console.log('⚠️ Cannot sync groups: socket not ready or function not supported')
+		return 0
+	}
+	try {
+		console.log('🔄 Fetching all participating groups from WhatsApp...')
+		const groups = await sock.groupFetchAllParticipating()
+		const groupList = Object.values(groups)
+		console.log(`Found ${groupList.length} groups. Syncing with database...`)
+		let count = 0
+		for (const g of groupList) {
+			let group = await groupRepo.findOneBy({ whatsappGroupId: g.id })
+			if (!group) {
+				group = groupRepo.create({
+					groupName: g.subject || 'Unnamed Group',
+					whatsappGroupId: g.id,
+					isActive: true
+				})
+				await groupRepo.save(group)
+				console.log(`✅ Saved new group: "${g.subject}" (${g.id})`)
+				count++
+			} else {
+				if (group.groupName !== g.subject) {
+					group.groupName = g.subject
+					await groupRepo.save(group)
+					console.log(`✏️ Updated group name: "${g.subject}" (${g.id})`)
+					count++
+				}
+			}
+		}
+		return groupList.length
+	} catch (err) {
+		console.error('❌ Error syncing groups:', err)
+		throw err
+	}
+}
+
 async function connectToWhatsApp() {
 	const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
 
+	// Fetch the latest WhatsApp Web version to ensure QR code generation works
+	const { version, isLatest } = await fetchLatestBaileysVersion()
+	console.log(`Using WA v${version.join('.')}, isLatest: ${isLatest}`)
+
 	sock = makeWASocket({
+		version,
 		auth: state,
 		printQRInTerminal: false,
 		logger: pino({ level: 'silent' })
@@ -87,6 +133,13 @@ async function connectToWhatsApp() {
 			connectedNumber = sock?.user?.id || null
 			lastQR = null
 			qrGenerated = false
+
+			// Auto sync groups shortly after connection opens
+			setTimeout(() => {
+				syncWhatsAppGroups().catch(err => {
+					console.error('Auto group sync failed:', err.message)
+				})
+			}, 3000)
 		}
 	})
 
@@ -425,19 +478,141 @@ app.post('/logout', async (req, res) => {
 	}
 })
 
-// Start server (npm start)
-const PORT = process.env.PORT || 3150
-app.listen(PORT, () => {
-	console.log('='.repeat(50))
-	console.log('🚀 WhatsApp Bot API Server Started!')
-	console.log('='.repeat(50))
-	console.log(`\n📡 Server running on: http://localhost:${PORT}`)
-	console.log(`\n📋 Available endpoints:`)
-	console.log(`   POST http://localhost:${PORT}/send-message`)
-	console.log(`   POST http://localhost:${PORT}/send-media`)
-	console.log(`   POST http://localhost:${PORT}/logout`)
-	console.log(`   GET  http://localhost:${PORT}/status`)
-	console.log(`   GET  http://localhost:${PORT}/health`)
-	console.log(`\n🔌 Connecting to WhatsApp...\n`)
-	connectToWhatsApp()
+// ─── Group CRUD & Send Routes ────────────────────────────────────────────────
+
+// POST /groups/sync — manual trigger to fetch participating groups and save them in DB
+app.post('/groups/sync', async (req, res) => {
+	try {
+		if (!sock) {
+			return res.status(503).json({ error: 'WhatsApp not connected. Please scan QR code first.' })
+		}
+		const count = await syncWhatsAppGroups()
+		res.json({ success: true, count, message: `Successfully synced groups.` })
+	} catch (err) {
+		console.error('Error in /groups/sync:', err)
+		res.status(500).json({ error: 'Failed to sync groups', details: err.message })
+	}
 })
+
+// GET /groups — list all groups
+app.get('/groups', async (req, res) => {
+	try {
+		const groups = await groupRepo.find({ order: { createdAt: 'DESC' } })
+		res.json(groups)
+	} catch (err) {
+		console.error('Error fetching groups:', err)
+		res.status(500).json({ error: err.message })
+	}
+})
+
+// GET /groups/:id — get single group
+app.get('/groups/:id', async (req, res) => {
+	try {
+		const group = await groupRepo.findOneBy({ id: Number(req.params.id) })
+		if (!group) return res.status(404).json({ error: 'Group not found' })
+		res.json(group)
+	} catch (err) {
+		res.status(500).json({ error: err.message })
+	}
+})
+
+// POST /groups — create a group
+app.post('/groups', async (req, res) => {
+	try {
+		const { groupName, whatsappGroupId } = req.body
+		if (!groupName || !whatsappGroupId) {
+			return res.status(400).json({ error: 'groupName and whatsappGroupId are required' })
+		}
+		const group = groupRepo.create({ groupName, whatsappGroupId, isActive: true })
+		const saved = await groupRepo.save(group)
+		res.status(201).json(saved)
+	} catch (err) {
+		if (err.message && err.message.includes('UNIQUE')) {
+			return res.status(409).json({ error: 'A group with that WhatsApp Group ID already exists' })
+		}
+		res.status(500).json({ error: err.message })
+	}
+})
+
+// PUT /groups/:id — update a group
+app.put('/groups/:id', async (req, res) => {
+	try {
+		const group = await groupRepo.findOneBy({ id: Number(req.params.id) })
+		if (!group) return res.status(404).json({ error: 'Group not found' })
+		const { groupName, whatsappGroupId, isActive } = req.body
+		if (groupName !== undefined) group.groupName = groupName
+		if (whatsappGroupId !== undefined) group.whatsappGroupId = whatsappGroupId
+		if (isActive !== undefined) group.isActive = isActive
+		const updated = await groupRepo.save(group)
+		res.json(updated)
+	} catch (err) {
+		res.status(500).json({ error: err.message })
+	}
+})
+
+// DELETE /groups/:id — delete a group
+app.delete('/groups/:id', async (req, res) => {
+	try {
+		const group = await groupRepo.findOneBy({ id: Number(req.params.id) })
+		if (!group) return res.status(404).json({ error: 'Group not found' })
+		await groupRepo.remove(group)
+		res.json({ success: true, message: 'Group deleted' })
+	} catch (err) {
+		res.status(500).json({ error: err.message })
+	}
+})
+
+// POST /groups/:id/send — send text message to a WhatsApp group
+app.post('/groups/:id/send', async (req, res) => {
+	try {
+		const { message } = req.body
+		if (!message) return res.status(400).json({ error: 'message is required' })
+
+		const group = await groupRepo.findOneBy({ id: Number(req.params.id) })
+		if (!group) return res.status(404).json({ error: 'Group not found' })
+		if (!group.isActive) return res.status(400).json({ error: `Group "${group.groupName}" is not active` })
+		if (!sock) return res.status(503).json({ error: 'WhatsApp not connected. Please scan QR code first.' })
+
+		// Group IDs end with @g.us — send as-is, no @s.whatsapp.net appending
+		await sock.sendMessage(group.whatsappGroupId, { text: message })
+		console.log(`📢 Group message sent to "${group.groupName}" (${group.whatsappGroupId})`)
+
+		res.json({ success: true, to: group.whatsappGroupId, groupName: group.groupName, text: message })
+	} catch (err) {
+		console.error('Error sending group message:', err)
+		res.status(500).json({ error: 'Failed to send group message', details: err.message })
+	}
+})
+
+// ─── Start Server ─────────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3150
+
+AppDataSource.initialize()
+	.then(() => {
+		console.log('✅ Database initialized (whatsapp.db)')
+		groupRepo = AppDataSource.getRepository('WhatsappGroup')
+
+		app.listen(PORT, () => {
+			console.log('='.repeat(50))
+			console.log('🚀 WhatsApp Bot API Server Started!')
+			console.log('='.repeat(50))
+			console.log(`\n📡 Server running on: http://localhost:${PORT}`)
+			console.log(`\n📋 Available endpoints:`)
+			console.log(`   POST http://localhost:${PORT}/send-message`)
+			console.log(`   POST http://localhost:${PORT}/send-media`)
+			console.log(`   POST http://localhost:${PORT}/logout`)
+			console.log(`   GET  http://localhost:${PORT}/status`)
+			console.log(`   GET  http://localhost:${PORT}/health`)
+			console.log(`   GET  http://localhost:${PORT}/groups`)
+			console.log(`   POST http://localhost:${PORT}/groups`)
+			console.log(`   PUT  http://localhost:${PORT}/groups/:id`)
+			console.log(`   DELETE http://localhost:${PORT}/groups/:id`)
+			console.log(`   POST http://localhost:${PORT}/groups/:id/send`)
+			console.log(`\n🔌 Connecting to WhatsApp...\n`)
+			connectToWhatsApp()
+		})
+	})
+	.catch(err => {
+		console.error('❌ Failed to initialize database:', err)
+		process.exit(1)
+	})

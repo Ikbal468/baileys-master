@@ -4,6 +4,7 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>WhatsApp Bot UI</title>
+		<meta name="description" content="WhatsApp Bot control panel — send messages, manage groups, and monitor connections." />
 		<link rel="stylesheet" href="style.css" />
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 	</head>
@@ -23,58 +24,131 @@
 				</div>
 			</header>
 
-			<main class="grid">
-				<section class="card connect-card">
-					<div class="connect-left">
-						<div id="connectedNumber" class="connected-number muted"></div>
-						<div class="muted small">Scan the QR below with WhatsApp → Linked Devices → Link a Device</div>
-					</div>
-					<div class="connect-right">
-						<div id="qrArea" class="qr-area">
-							<div id="qrcode"></div>
+			<!-- Tab Bar -->
+			<nav class="tab-bar" role="tablist">
+				<button id="tab-btn-send" class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-send">
+					💬 Send Message
+				</button>
+				<button id="tab-btn-groups" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-groups">
+					👥 Groups
+				</button>
+			</nav>
+
+			<main>
+				<!-- Tab: Send Message -->
+				<div id="tab-send" class="tab-panel grid">
+					<section class="card connect-card">
+						<div class="connect-left">
+							<div id="connectedNumber" class="connected-number muted"></div>
+							<div class="muted small">Scan the QR below with WhatsApp → Linked Devices → Link a Device</div>
 						</div>
-					</div>
-				</section>
-
-				<section class="card send-card">
-					<h3>Send Message</h3>
-					<form id="sendForm" class="send-form">
-						<input id="number" placeholder="5511999999999" />
-						<textarea id="message" placeholder="Type your message"></textarea>
-						<label for="fileInput" class="small muted">Attach file (optional)</label>
-						<input id="fileInput" type="file" accept="image/*,video/*,.pdf,.doc,.docx,.ppt,.pptx" />
-						<div id="filePreview" class="file-preview"></div>
-						<label for="mediaType" class="small muted">Media type (optional)</label>
-						<select id="mediaType">
-							<option value="auto">Auto-detect</option>
-							<option value="image">Image</option>
-							<option value="video">Video</option>
-							<option value="document">Document</option>
-						</select>
-						<div class="form-actions">
-							<button type="submit" class="btn primary">Send</button>
-							<button type="button" id="clearBtn" class="btn ghost">Clear</button>
+						<div class="connect-right">
+							<div id="qrArea" class="qr-area">
+								<div id="qrcode"></div>
+							</div>
 						</div>
-					</form>
-					<div id="sendResult"></div>
-				</section>
+					</section>
 
-				<!-- <section class="card check-card">
-					<h3>Check Number</h3>
-					<div class="check-form">
-						<input id="checkNumber" placeholder="5511999999999" />
-						<button id="checkNumberBtn" class="btn">Check</button>
-						<div id="checkResult" class="muted small" style="margin-top: 8px"></div>
-					</div>
-				</section> -->
+					<section class="card send-card">
+						<h3>Send Message</h3>
+						<form id="sendForm" class="send-form">
+							<input id="number" placeholder="5511999999999" />
+							<textarea id="message" placeholder="Type your message"></textarea>
+							<label for="fileInput" class="small muted">Attach file (optional)</label>
+							<input id="fileInput" type="file" accept="image/*,video/*,.pdf,.doc,.docx,.ppt,.pptx" />
+							<div id="filePreview" class="file-preview"></div>
+							<label for="mediaType" class="small muted">Media type (optional)</label>
+							<select id="mediaType">
+								<option value="auto">Auto-detect</option>
+								<option value="image">Image</option>
+								<option value="video">Video</option>
+								<option value="document">Document</option>
+							</select>
+							<div class="form-actions">
+								<button type="submit" class="btn primary">Send</button>
+								<button type="button" id="clearBtn" class="btn ghost">Clear</button>
+							</div>
+						</form>
+						<div id="sendResult"></div>
+					</section>
 
-				<section class="card log-card">
-					<h3>Chat Log</h3>
-					<div id="chatLog"></div>
-				</section>
+					<section class="card log-card">
+						<h3>Chat Log</h3>
+						<div id="chatLog"></div>
+					</section>
+				</div>
+
+				<!-- Tab: Groups -->
+				<div id="tab-groups" class="tab-panel hidden">
+					<section class="card">
+						<div class="groups-header">
+							<h3>WhatsApp Groups</h3>
+							<div class="header-actions" style="display: flex; gap: 8px;">
+								<button id="syncGroupsBtn" class="btn ghost">🔄 Sync Groups</button>
+								<button id="addGroupBtn" class="btn primary">+ Add Group</button>
+							</div>
+						</div>
+
+						<!-- Add / Edit Form -->
+						<div id="groupForm" class="group-form hidden">
+							<h4 id="groupFormTitle">Add Group</h4>
+							<input type="hidden" id="groupFormId" />
+							<div class="form-row">
+								<label for="groupNameInput">Group Name</label>
+								<input id="groupNameInput" type="text" placeholder="e.g. North Region Drivers" />
+							</div>
+							<div class="form-row">
+								<label for="groupWaIdInput">WhatsApp Group ID</label>
+								<input id="groupWaIdInput" type="text" placeholder="e.g. 1234567890-12345@g.us" />
+								<p class="hint muted small">💡 Send a message in the group while bot is connected — the ID appears in the Chat Log above.</p>
+							</div>
+							<div class="form-actions">
+								<button id="saveGroupBtn" class="btn primary">Save Group</button>
+								<button id="cancelGroupBtn" class="btn ghost">Cancel</button>
+							</div>
+							<div id="groupFormError" class="form-error hidden"></div>
+						</div>
+
+						<!-- Groups Table -->
+						<div class="table-wrap">
+							<table class="group-table" id="groupsTable">
+								<thead>
+									<tr>
+										<th>#</th>
+										<th>Group Name</th>
+										<th>WhatsApp Group ID</th>
+										<th>Status</th>
+										<th>Actions</th>
+									</tr>
+								</thead>
+								<tbody id="groupsTableBody">
+									<tr><td colspan="5" class="empty-row">Loading groups...</td></tr>
+								</tbody>
+							</table>
+						</div>
+
+						<!-- Inline Send Form (shown per row) -->
+						<div id="inlineSendForm" class="inline-send-form hidden">
+							<input type="hidden" id="inlineSendGroupId" />
+							<div class="inline-send-header">
+								<span id="inlineSendGroupName" class="inline-send-title"></span>
+								<button id="closeSendFormBtn" class="btn ghost btn-sm">✕ Close</button>
+							</div>
+							<div class="form-row">
+								<label for="inlineSendMessage">Message</label>
+								<textarea id="inlineSendMessage" placeholder="Type your group message..." rows="3"></textarea>
+							</div>
+							<div class="form-actions">
+								<button id="submitSendGroupBtn" class="btn primary">📢 Send to Group</button>
+							</div>
+							<div id="inlineSendResult" class="form-result hidden"></div>
+						</div>
+					</section>
+				</div>
 			</main>
 		</div>
 
 		<script src="app.js"></script>
+		<script src="groups.js"></script>
 	</body>
 </html>
